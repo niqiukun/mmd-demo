@@ -6,7 +6,7 @@ import { GUI } from './jsm/libs/lil-gui.module.min.js';
 import { OrbitControls } from './jsm/controls/OrbitControls.js';
 import { OutlineEffect } from './jsm/effects/OutlineEffect.js';
 import { MMDLoader } from './jsm/loaders/MMDLoader.js';
-import { MMDAnimationHelper } from './jsm/animation/MMDAnimationHelper.js';
+import { MMDAnimationHelper } from './jsm/animation/MMDAnimationHelper';
 
 let stats;
 
@@ -15,9 +15,8 @@ let helper, ikHelper, physicsHelper;
 
 const clock = new THREE.Clock();
 
-Ammo().then(function (AmmoLib) {
-  Ammo = AmmoLib;
-
+// @ts-expect-error
+Ammo().then(function () {
   init();
   animate();
 });
@@ -69,12 +68,12 @@ function init() {
   function onProgress(xhr) {
     if (xhr.lengthComputable) {
       const percentComplete = (xhr.loaded / xhr.total) * 100;
-      console.log(Math.round(percentComplete, 2) + '% downloaded');
+      console.log(Math.round(percentComplete * 100) / 100 + '% downloaded');
     }
   }
 
-  const modelFile = 'models/mmd/miku/miku_v2.pmd';
-  const vmdFiles = ['models/mmd/vmds/wavefile_v2.vmd'];
+  const modelFile = 'models/mmd/hutao/hutao.pmx';
+  const vmdFiles = ['models/mmd/vmds/gokuraku_jodo.vmd'];
 
   helper = new MMDAnimationHelper({
     afterglow: 2.0,

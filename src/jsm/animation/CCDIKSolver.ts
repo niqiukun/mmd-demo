@@ -1,4 +1,5 @@
 import {
+  Bone,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -9,9 +10,26 @@ import {
   MeshBasicMaterial,
   Object3D,
   Quaternion,
+  SkinnedMesh,
   SphereGeometry,
   Vector3,
 } from 'three';
+
+type Link = {
+  index: number;
+  limitation: Vector3;
+  enabled: boolean;
+  rotationMin: Vector3;
+  rotationMax: Vector3;
+};
+type InverseKinematics = {
+  target: number;
+  effector: number;
+  links: Link[];
+  iteration: number;
+  minAngle: number;
+  maxAngle: number;
+};
 
 const _q = new Quaternion();
 const _targetPos = new Vector3();
@@ -46,11 +64,14 @@ const _matrix = new Matrix4();
  */
 
 class CCDIKSolver {
+  mesh: SkinnedMesh;
+  iks: InverseKinematics[];
+
   /**
    * @param {THREE.SkinnedMesh} mesh
    * @param {Array<Object>} iks
    */
-  constructor(mesh, iks = []) {
+  constructor(mesh: SkinnedMesh, iks: InverseKinematics[] = []) {
     this.mesh = mesh;
     this.iks = iks;
 
@@ -78,7 +99,7 @@ class CCDIKSolver {
    * @param {Object} ik parameter
    * @return {CCDIKSolver}
    */
-  updateOne(ik) {
+  updateOne(ik: InverseKinematics) {
     const bones = this.mesh.skeleton.bones;
 
     // for reference overhead reduction in loop
@@ -229,13 +250,18 @@ class CCDIKSolver {
   }
 }
 
-function getPosition(bone, matrixWorldInv) {
+function getPosition(bone: Bone, matrixWorldInv: Matrix4) {
   return _vector
     .setFromMatrixPosition(bone.matrixWorld)
     .applyMatrix4(matrixWorldInv);
 }
 
-function setPositionOfBoneToAttributeArray(array, index, bone, matrixWorldInv) {
+function setPositionOfBoneToAttributeArray(
+  array: number[],
+  index: number,
+  bone: Bone,
+  matrixWorldInv: Matrix4
+) {
   const v = getPosition(bone, matrixWorldInv);
 
   array[index * 3 + 0] = v.x;
@@ -250,7 +276,15 @@ function setPositionOfBoneToAttributeArray(array, index, bone, matrixWorldInv) {
  * @param {Array<Object>} iks
  */
 class CCDIKHelper extends Object3D {
-  constructor(mesh, iks = []) {
+  root: SkinnedMesh;
+  iks: InverseKinematics[];
+  sphereGeometry: SphereGeometry;
+  targetSphereMaterial: MeshBasicMaterial;
+  effectorSphereMaterial: MeshBasicMaterial;
+  linkSphereMaterial: MeshBasicMaterial;
+  lineMaterial: LineBasicMaterial;
+
+  constructor(mesh: SkinnedMesh, iks: InverseKinematics[] = []) {
     super();
 
     this.root = mesh;
@@ -295,7 +329,7 @@ class CCDIKHelper extends Object3D {
   /**
    * Updates IK bones visualization.
    */
-  updateMatrixWorld(force) {
+  updateMatrixWorld(force: boolean) {
     const mesh = this.root;
 
     if (this.visible) {
@@ -327,8 +361,8 @@ class CCDIKHelper extends Object3D {
           linkMesh.position.copy(getPosition(linkBone, _matrix));
         }
 
-        const line = this.children[offset++];
-        const array = line.geometry.attributes.position.array;
+        const line = this.children[offset++] as Line;
+        const array = line.geometry.attributes.position.array as number[];
 
         setPositionOfBoneToAttributeArray(array, 0, targetBone, _matrix);
         setPositionOfBoneToAttributeArray(array, 1, effectorBone, _matrix);
@@ -351,10 +385,11 @@ class CCDIKHelper extends Object3D {
   // private method
 
   _init() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const scope = this;
     const iks = this.iks;
 
-    function createLineGeometry(ik) {
+    function createLineGeometry(ik: InverseKinematics) {
       const geometry = new BufferGeometry();
       const vertices = new Float32Array((2 + ik.links.length) * 3);
       geometry.setAttribute('position', new BufferAttribute(vertices, 3));
@@ -374,7 +409,7 @@ class CCDIKHelper extends Object3D {
       return new Mesh(scope.sphereGeometry, scope.linkSphereMaterial);
     }
 
-    function createLine(ik) {
+    function createLine(ik: InverseKinematics) {
       return new Line(createLineGeometry(ik), scope.lineMaterial);
     }
 
