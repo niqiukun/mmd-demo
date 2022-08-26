@@ -73,8 +73,8 @@ function init() {
     }
   }
 
-  const modelFile = 'models/mmd/miku/miku_v2.pmd';
-  const vmdFiles = ['models/mmd/vmds/wavefile_v2.vmd'];
+  const modelFile = 'models/mmd/hutao/hutao.pmx';
+  const vmdFiles = ['models/mmd/vmds/gokuraku_jodo.vmd'];
 
   helper = new MMDAnimationHelper({
     afterglow: 2.0,
