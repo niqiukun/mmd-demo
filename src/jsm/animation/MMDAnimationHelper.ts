@@ -20,7 +20,7 @@ import { MMDPhysics, MMDPhysicsParams } from '../animation/MMDPhysics';
 declare var world: Ammo.btDiscreteDynamicsWorld;
 
 // utilities
-type Merge<A, B> = {
+export type Merge<A, B> = {
   [P in keyof A | keyof B]: P extends keyof A
     ? P extends keyof B
       ? A[P] | B[P]

@@ -1,14 +1,28 @@
-import { DataTextureLoader, LinearMipmapLinearFilter } from 'three';
+import {
+  DataTextureLoader,
+  LinearMipmapLinearFilter,
+  LoadingManager,
+} from 'three';
+
+type TGAHeader = {
+  image_type: number;
+  pixel_size: number;
+  width: number;
+  height: number;
+  colormap_length: number;
+  colormap_size: number;
+  colormap_type: number;
+};
 
 class TGALoader extends DataTextureLoader {
-  constructor(manager) {
+  constructor(manager: LoadingManager) {
     super(manager);
   }
 
-  parse(buffer) {
+  parse(buffer: Buffer) {
     // reference from vthibault, https://github.com/vthibault/roBrowser/blob/master/src/Loaders/Targa.js
 
-    function tgaCheckHeader(header) {
+    function tgaCheckHeader(header: TGAHeader) {
       switch (header.image_type) {
         // check indexed type
 
@@ -45,6 +59,8 @@ class TGALoader extends DataTextureLoader {
         case TGA_TYPE_NO_DATA:
           console.error('THREE.TGALoader: No data.');
 
+          break;
+
         // Invalid type ?
 
         default:
@@ -77,8 +93,15 @@ class TGALoader extends DataTextureLoader {
 
     // parse tga image buffer
 
-    function tgaParse(use_rle, use_pal, header, offset, data) {
-      let pixel_data, palettes;
+    function tgaParse(
+      use_rle: boolean,
+      use_pal: boolean,
+      header: TGAHeader,
+      offset: number,
+      data: Uint8Array
+    ) {
+      let pixel_data;
+      let palettes = new Uint8Array();
 
       const pixel_size = header.pixel_size >> 3;
       const pixel_total = header.width * header.height * pixel_size;
@@ -149,15 +172,15 @@ class TGALoader extends DataTextureLoader {
     }
 
     function tgaGetImageData8bits(
-      imageData,
-      y_start,
-      y_step,
-      y_end,
-      x_start,
-      x_step,
-      x_end,
-      image,
-      palettes
+      imageData: Uint8Array,
+      y_start: number,
+      y_step: number,
+      y_end: number,
+      x_start: number,
+      x_step: number,
+      x_end: number,
+      image: Uint8Array,
+      palettes: Uint8Array
     ) {
       const colormap = palettes;
       let color,
@@ -180,14 +203,14 @@ class TGALoader extends DataTextureLoader {
     }
 
     function tgaGetImageData16bits(
-      imageData,
-      y_start,
-      y_step,
-      y_end,
-      x_start,
-      x_step,
-      x_end,
-      image
+      imageData: Uint8Array,
+      y_start: number,
+      y_step: number,
+      y_end: number,
+      x_start: number,
+      x_step: number,
+      x_end: number,
+      image: Uint8Array
     ) {
       let color,
         i = 0,
@@ -209,14 +232,14 @@ class TGALoader extends DataTextureLoader {
     }
 
     function tgaGetImageData24bits(
-      imageData,
-      y_start,
-      y_step,
-      y_end,
-      x_start,
-      x_step,
-      x_end,
-      image
+      imageData: Uint8Array,
+      y_start: number,
+      y_step: number,
+      y_end: number,
+      x_start: number,
+      x_step: number,
+      x_end: number,
+      image: Uint8Array
     ) {
       let i = 0,
         x,
@@ -236,14 +259,14 @@ class TGALoader extends DataTextureLoader {
     }
 
     function tgaGetImageData32bits(
-      imageData,
-      y_start,
-      y_step,
-      y_end,
-      x_start,
-      x_step,
-      x_end,
-      image
+      imageData: Uint8Array,
+      y_start: number,
+      y_step: number,
+      y_end: number,
+      x_start: number,
+      x_step: number,
+      x_end: number,
+      image: Uint8Array
     ) {
       let i = 0,
         x,
@@ -263,14 +286,14 @@ class TGALoader extends DataTextureLoader {
     }
 
     function tgaGetImageDataGrey8bits(
-      imageData,
-      y_start,
-      y_step,
-      y_end,
-      x_start,
-      x_step,
-      x_end,
-      image
+      imageData: Uint8Array,
+      y_start: number,
+      y_step: number,
+      y_end: number,
+      x_start: number,
+      x_step: number,
+      x_end: number,
+      image: Uint8Array
     ) {
       let color,
         i = 0,
@@ -292,14 +315,14 @@ class TGALoader extends DataTextureLoader {
     }
 
     function tgaGetImageDataGrey16bits(
-      imageData,
-      y_start,
-      y_step,
-      y_end,
-      x_start,
-      x_step,
-      x_end,
-      image
+      imageData: Uint8Array,
+      y_start: number,
+      y_step: number,
+      y_end: number,
+      x_start: number,
+      x_step: number,
+      x_end: number,
+      image: Uint8Array
     ) {
       let i = 0,
         x,
@@ -318,7 +341,13 @@ class TGALoader extends DataTextureLoader {
       return imageData;
     }
 
-    function getTgaRGBA(data, width, height, image, palette) {
+    function getTgaRGBA(
+      data: Uint8Array,
+      width: number,
+      height: number,
+      image: Uint8Array,
+      palette: Uint8Array
+    ) {
       let x_start, y_start, x_step, y_step, x_end, y_end;
 
       switch ((header.flags & TGA_ORIGIN_MASK) >> TGA_ORIGIN_SHIFT) {

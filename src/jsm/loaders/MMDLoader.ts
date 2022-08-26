@@ -36,10 +36,17 @@ import {
   RGB_PVRTC_2BPPV1_Format,
   RGB_ETC1_Format,
   RGB_ETC2_Format,
+  LoadingManager,
+  PerspectiveCamera,
+  Combine,
+  NormalMapTypes,
+  ShaderMaterialParameters,
+  Material,
 } from 'three';
 import { MMDToonShader } from '../shaders/MMDToonShader.js';
 import { TGALoader } from '../loaders/TGALoader.js';
 import { MMDParser } from '../libs/mmdparser.module.js';
+import { Merge } from '../animation/MMDAnimationHelper.js';
 
 /**
  * Dependencies
@@ -74,7 +81,13 @@ import { MMDParser } from '../libs/mmdparser.module.js';
  * @param {THREE.LoadingManager} manager
  */
 class MMDLoader extends Loader {
-  constructor(manager) {
+  loader: FileLoader;
+  parser: null;
+  meshBuilder: MeshBuilder;
+  animationBuilder: AnimationBuilder;
+  animationPath: string | undefined;
+
+  constructor(manager: LoadingManager) {
     super(manager);
 
     this.loader = new FileLoader(this.manager);
@@ -88,7 +101,7 @@ class MMDLoader extends Loader {
    * @param {string} animationPath
    * @return {MMDLoader}
    */
-  setAnimationPath(animationPath) {
+  setAnimationPath(animationPath: string) {
     this.animationPath = animationPath;
     return this;
   }
@@ -103,12 +116,17 @@ class MMDLoader extends Loader {
    * @param {function} onProgress
    * @param {function} onError
    */
-  load(url, onLoad, onProgress, onError) {
+  load(
+    url: string,
+    onLoad: (data: SkinnedMesh) => void,
+    onProgress: () => void,
+    onError: (error: Error) => void
+  ) {
     const builder = this.meshBuilder.setCrossOrigin(this.crossOrigin);
 
     // resource path
 
-    let resourcePath;
+    let resourcePath: string;
 
     if (this.resourcePath !== '') {
       resourcePath = this.resourcePath;
@@ -136,7 +154,7 @@ class MMDLoader extends Loader {
 
     this[modelExtension === 'pmd' ? 'loadPMD' : 'loadPMX'](
       url,
-      function (data) {
+      function (data: SkinnedMesh) {
         onLoad(builder.build(data, resourcePath, onProgress, onError));
       },
       onProgress,
@@ -154,12 +172,18 @@ class MMDLoader extends Loader {
    * @param {function} onProgress
    * @param {function} onError
    */
-  loadAnimation(url, object, onLoad, onProgress, onError) {
+  loadAnimation(
+    url: string | string[],
+    object: Merge<SkinnedMesh, PerspectiveCamera>,
+    onLoad: (data: AnimationClip) => void,
+    onProgress: () => void,
+    onError: () => void
+  ) {
     const builder = this.animationBuilder;
 
     this.loadVMD(
       url,
-      function (vmd) {
+      function (vmd: VMD) {
         onLoad(
           object.isCamera
             ? builder.buildCameraAnimation(vmd)
@@ -182,7 +206,13 @@ class MMDLoader extends Loader {
    * @param {function} onProgress
    * @param {function} onError
    */
-  loadWithAnimation(modelUrl, vmdUrl, onLoad, onProgress, onError) {
+  loadWithAnimation(
+    modelUrl: string,
+    vmdUrl: string | string[],
+    onLoad,
+    onProgress,
+    onError
+  ) {
     const scope = this;
 
     this.load(
@@ -271,7 +301,7 @@ class MMDLoader extends Loader {
    * @param {function} onProgress
    * @param {function} onError
    */
-  loadVMD(url, onLoad, onProgress, onError) {
+  loadVMD(url: string | string[], onLoad, onProgress, onError) {
     const urls = Array.isArray(url) ? url : [url];
 
     const vmds = [];
@@ -279,7 +309,7 @@ class MMDLoader extends Loader {
 
     const parser = this._getParser();
 
-    this.loader
+    this.loader // @ts-expect-error
       .setMimeType(undefined)
       .setPath(this.animationPath)
       .setResponseType('arraybuffer')
@@ -1738,7 +1768,7 @@ class AnimationBuilder {
     const track = new typedKeyframeTrack(node, times, values);
 
     track.createInterpolant = function InterpolantFactoryMethodCubicBezier(
-      result
+      result: any
     ) {
       return new CubicBezierInterpolation(
         this.times,
@@ -1756,19 +1786,21 @@ class AnimationBuilder {
 // interpolation
 
 class CubicBezierInterpolation extends Interpolant {
+  interpolationParams: Float32Array;
+
   constructor(
-    parameterPositions,
-    sampleValues,
-    sampleSize,
-    resultBuffer,
-    params
+    parameterPositions: any,
+    sampleValues: any,
+    sampleSize: number,
+    resultBuffer: any,
+    params: Float32Array
   ) {
     super(parameterPositions, sampleValues, sampleSize, resultBuffer);
 
     this.interpolationParams = params;
   }
 
-  interpolate_(i1, t0, t, t1) {
+  interpolate_(i1: number, t0: number, t: number, t1: number) {
     const result = this.resultBuffer;
     const values = this.sampleValues;
     const stride = this.valueSize;
@@ -1823,7 +1855,7 @@ class CubicBezierInterpolation extends Interpolant {
     return result;
   }
 
-  _calculate(x1, x2, y1, y2, x) {
+  _calculate(x1: number, x2: number, y1: number, y2: number, x: number) {
     /*
      * Cubic Bezier curves
      *   https://en.wikipedia.org/wiki/B%C3%A9zier_curve#Cubic_B.C3.A9zier_curves
@@ -1868,7 +1900,9 @@ class CubicBezierInterpolation extends Interpolant {
     const eps = 1e-5;
     const math = Math;
 
-    let sst3, stt3, ttt;
+    let sst3 = 0,
+      stt3 = 0,
+      ttt = 0;
 
     for (let i = 0; i < loop; i++) {
       sst3 = 3.0 * s * s * t;
@@ -1890,7 +1924,20 @@ class CubicBezierInterpolation extends Interpolant {
 }
 
 class MMDToonMaterial extends ShaderMaterial {
-  constructor(parameters) {
+  isMMDToonMaterial: boolean;
+  _matcapCombine: Combine;
+  emissiveIntensity: number;
+  normalMapType: NormalMapTypes;
+  combine: Combine;
+  wireframeLinecap: string;
+  wireframeLinejoin: string;
+  flatShading: boolean;
+  lights: boolean;
+  vertexShader: string;
+  fragmentShader: string;
+  _shininess: number;
+
+  constructor(parameters: ShaderMaterialParameters) {
     super();
 
     this.isMMDToonMaterial = true;
@@ -2001,16 +2048,17 @@ class MMDToonMaterial extends ShaderMaterial {
 
     Object.defineProperty(
       this,
-      'color',
+      'color', // @ts-expect-error
       Object.getOwnPropertyDescriptor(this, 'diffuse')
     );
 
     this.setValues(parameters);
   }
 
-  copy(source) {
+  copy(source: MMDToonMaterial) {
     super.copy(source);
 
+    // @ts-expect-error defined through Object.defineProperty
     this.matcapCombine = source.matcapCombine;
     this.emissiveIntensity = source.emissiveIntensity;
     this.normalMapType = source.normalMapType;
