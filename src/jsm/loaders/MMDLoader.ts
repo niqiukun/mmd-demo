@@ -42,11 +42,38 @@ import {
   NormalMapTypes,
   ShaderMaterialParameters,
   Material,
+  KeyframeTrack,
 } from 'three';
 import { MMDToonShader } from '../shaders/MMDToonShader.js';
 import { TGALoader } from '../loaders/TGALoader.js';
 import { MMDParser } from '../libs/mmdparser.module.js';
 import { Merge } from '../animation/MMDAnimationHelper.js';
+
+type VMD = {
+  cameras: CameraMotion[];
+  metadata: {
+    motionCount: number;
+    morphCount: number;
+  };
+  motions: BoneMotion[];
+  morphs: Morph[];
+};
+type CameraMotion = {
+  distance: number;
+  fov: number;
+} & Motion;
+type BoneMotion = { boneName: string } & Motion;
+type Motion = {
+  frameNum: number;
+  position: number[];
+  rotation: number[];
+  interpolation: number[];
+};
+type Morph = { morphName: string; frameNum: number; weight: number };
+type Image = {
+  data: number[];
+} & ImageBitmap;
+type UV = { x: number; y: number };
 
 /**
  * Dependencies
@@ -971,7 +998,13 @@ class GeometryBuilder {
  * @param {THREE.LoadingManager} manager
  */
 class MaterialBuilder {
-  constructor(manager) {
+  manager: LoadingManager;
+  textureLoader: TextureLoader;
+  tgaLoader: null | TGALoader;
+  crossOrigin: string;
+  resourcePath?: string;
+
+  constructor(manager: LoadingManager) {
     this.manager = manager;
 
     this.textureLoader = new TextureLoader(this.manager);
@@ -985,7 +1018,7 @@ class MaterialBuilder {
    * @param {string} crossOrigin
    * @return {MaterialBuilder}
    */
-  setCrossOrigin(crossOrigin) {
+  setCrossOrigin(crossOrigin: string) {
     this.crossOrigin = crossOrigin;
     return this;
   }
@@ -994,7 +1027,7 @@ class MaterialBuilder {
    * @param {string} resourcePath
    * @return {MaterialBuilder}
    */
-  setResourcePath(resourcePath) {
+  setResourcePath(resourcePath: string) {
     this.resourcePath = resourcePath;
     return this;
   }
@@ -1006,7 +1039,7 @@ class MaterialBuilder {
    * @param {function} onError
    * @return {Array<MMDToonMaterial>}
    */
-  build(data, geometry /*, onProgress, onError */) {
+  build(data: PMD, geometry: BufferGeometry /*, onProgress, onError */) {
     const materials = [];
 
     const textures = {};
@@ -1232,7 +1265,7 @@ class MaterialBuilder {
     return /toon(10|0[0-9])\.bmp/.test(name);
   }
 
-  _loadTexture(filePath, textures, params, onProgress, onError) {
+  _loadTexture(filePath: string, textures, params, onProgress, onError) {
     params = params || {};
 
     const scope = this;
@@ -1305,9 +1338,10 @@ class MaterialBuilder {
     return texture;
   }
 
-  _getRotatedImage(image) {
+  _getRotatedImage(image: Image) {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
+    if (!context) return;
 
     const width = image.width;
     const height = image.height;
@@ -1328,18 +1362,23 @@ class MaterialBuilder {
   _checkImageTransparency(map, geometry, groupIndex) {
     map.readyCallbacks.push(function (texture) {
       // Is there any efficient ways?
-      function createImageData(image) {
+      function createImageData(image: Image) {
         const canvas = document.createElement('canvas');
         canvas.width = image.width;
         canvas.height = image.height;
 
         const context = canvas.getContext('2d');
+        if (!context) return;
         context.drawImage(image, 0, 0);
 
         return context.getImageData(0, 0, canvas.width, canvas.height);
       }
 
-      function detectImageTransparency(image, uvs, indices) {
+      function detectImageTransparency(
+        image: Image,
+        uvs: number[],
+        indices: number[]
+      ) {
         const width = image.width;
         const height = image.height;
         const data = image.data;
@@ -1376,7 +1415,7 @@ class MaterialBuilder {
        *   texture.wrapT = RepeatWrapping
        * TODO: more precise
        */
-      function getAlphaByUv(image, uv) {
+      function getAlphaByUv(image: Image, uv: UV) {
         const width = image.width;
         const height = image.height;
 
@@ -1430,7 +1469,7 @@ class AnimationBuilder {
    * @param {SkinnedMesh} mesh - tracks will be fitting to mesh
    * @return {AnimationClip}
    */
-  build(vmd, mesh) {
+  build(vmd: VMD, mesh: SkinnedMesh) {
     // combine skeletal and morph animations
 
     const tracks = this.buildSkeletalAnimation(vmd, mesh).tracks;
@@ -1448,8 +1487,12 @@ class AnimationBuilder {
    * @param {SkinnedMesh} mesh - tracks will be fitting to mesh
    * @return {AnimationClip}
    */
-  buildSkeletalAnimation(vmd, mesh) {
-    function pushInterpolation(array, interpolation, index) {
+  buildSkeletalAnimation(vmd: VMD, mesh: SkinnedMesh) {
+    function pushInterpolation(
+      array: number[],
+      interpolation: number[],
+      index: number
+    ) {
       array.push(interpolation[index + 0] / 127); // x1
       array.push(interpolation[index + 8] / 127); // x2
       array.push(interpolation[index + 4] / 127); // y1
@@ -1458,9 +1501,9 @@ class AnimationBuilder {
 
     const tracks = [];
 
-    const motions = {};
+    const motions: Record<string, BoneMotion[]> = {};
     const bones = mesh.skeleton.bones;
-    const boneNameDictionary = {};
+    const boneNameDictionary: Record<string, boolean> = {};
 
     for (let i = 0, il = bones.length; i < il; i++) {
       boneNameDictionary[bones[i].name] = true;
@@ -1483,13 +1526,14 @@ class AnimationBuilder {
         return a.frameNum - b.frameNum;
       });
 
-      const times = [];
-      const positions = [];
-      const rotations = [];
-      const pInterpolations = [];
-      const rInterpolations = [];
+      const times: number[] = [];
+      const positions: number[] = [];
+      const rotations: number[] = [];
+      const pInterpolations: number[] = [];
+      const rInterpolations: number[] = [];
 
-      const basePosition = mesh.skeleton.getBoneByName(key).position.toArray();
+      const basePosition = mesh.skeleton.getBoneByName(key)?.position.toArray();
+      if (!basePosition) continue;
 
       for (let i = 0, il = array.length; i < il; i++) {
         const time = array[i].frameNum / 30;
@@ -1538,19 +1582,19 @@ class AnimationBuilder {
    * @param {SkinnedMesh} mesh - tracks will be fitting to mesh
    * @return {AnimationClip}
    */
-  buildMorphAnimation(vmd, mesh) {
+  buildMorphAnimation(vmd: VMD, mesh: SkinnedMesh) {
     const tracks = [];
 
-    const morphs = {};
+    const morphs: Record<string, Morph[]> = {};
     const morphTargetDictionary = mesh.morphTargetDictionary;
 
     for (let i = 0; i < vmd.metadata.morphCount; i++) {
       const morph = vmd.morphs[i];
       const morphName = morph.morphName;
 
-      if (morphTargetDictionary[morphName] === undefined) continue;
+      if (morphTargetDictionary?.[morphName] === undefined) continue;
 
-      morphs[morphName] = morphs[morphName] || [];
+      morphs[morphName] = morphs?.[morphName] || [];
       morphs[morphName].push(morph);
     }
 
@@ -1571,7 +1615,7 @@ class AnimationBuilder {
 
       tracks.push(
         new NumberKeyframeTrack(
-          '.morphTargetInfluences[' + morphTargetDictionary[key] + ']',
+          '.morphTargetInfluences[' + morphTargetDictionary?.[key] + ']',
           times,
           values
         )
@@ -1585,21 +1629,25 @@ class AnimationBuilder {
    * @param {Object} vmd - parsed VMD data
    * @return {AnimationClip}
    */
-  buildCameraAnimation(vmd) {
-    function pushVector3(array, vec) {
+  buildCameraAnimation(vmd: VMD) {
+    function pushVector3(array: number[], vec: Vector3) {
       array.push(vec.x);
       array.push(vec.y);
       array.push(vec.z);
     }
 
-    function pushQuaternion(array, q) {
+    function pushQuaternion(array: number[], q: Quaternion) {
       array.push(q.x);
       array.push(q.y);
       array.push(q.z);
       array.push(q.w);
     }
 
-    function pushInterpolation(array, interpolation, index) {
+    function pushInterpolation(
+      array: number[],
+      interpolation: number[],
+      index: number
+    ) {
       array.push(interpolation[index * 4 + 0] / 127); // x1
       array.push(interpolation[index * 4 + 1] / 127); // x2
       array.push(interpolation[index * 4 + 2] / 127); // y1
@@ -1613,15 +1661,15 @@ class AnimationBuilder {
     });
 
     const times = [];
-    const centers = [];
-    const quaternions = [];
-    const positions = [];
+    const centers: number[] = [];
+    const quaternions: number[] = [];
+    const positions: number[] = [];
     const fovs = [];
 
-    const cInterpolations = [];
-    const qInterpolations = [];
-    const pInterpolations = [];
-    const fInterpolations = [];
+    const cInterpolations: number[] = [];
+    const qInterpolations: number[] = [];
+    const pInterpolations: number[] = [];
+    const fInterpolations: number[] = [];
 
     const quaternion = new Quaternion();
     const euler = new Euler();
@@ -1715,7 +1763,13 @@ class AnimationBuilder {
 
   // private method
 
-  _createTrack(node, typedKeyframeTrack, times, values, interpolations) {
+  _createTrack(
+    node: string,
+    typedKeyframeTrack: typeof KeyframeTrack,
+    times: number[],
+    values: number[],
+    interpolations: number[]
+  ) {
     /*
      * optimizes here not to let KeyframeTrackPrototype optimize
      * because KeyframeTrackPrototype optimizes times and values but
@@ -1767,6 +1821,7 @@ class AnimationBuilder {
 
     const track = new typedKeyframeTrack(node, times, values);
 
+    // @ts-expect-error
     track.createInterpolant = function InterpolantFactoryMethodCubicBezier(
       result: any
     ) {
